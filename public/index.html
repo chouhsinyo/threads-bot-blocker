@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Threads Bot Blocker</title>
+<style>
+  :root { --bg:#f6f6f7; --card:#fff; --text:#1a1a1a; --muted:#6b6b6b; --line:#e3e3e6; --accent:#111; --red:#d1242f; --amber:#b7791f; --green:#1a7f37; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#101012; --card:#1a1a1d; --text:#ececec; --muted:#9a9aa0; --line:#2c2c31; --accent:#fff; --red:#ff6b6b; --amber:#f0b429; --green:#4ac26b; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui,-apple-system,"Noto Sans TC",sans-serif; }
+  header { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; padding:16px 20px; background:var(--card); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:2; }
+  h1 { font-size:18px; margin:0; }
+  main { max-width:900px; margin:0 auto; padding:16px; }
+  nav { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
+  nav button { background:var(--card); }
+  nav button.on { background:var(--accent); color:var(--bg); border-color:var(--accent); }
+  button { font:inherit; border:1px solid var(--line); background:var(--card); color:var(--text); padding:6px 12px; border-radius:8px; cursor:pointer; }
+  button:hover { border-color:var(--muted); }
+  button.primary { background:var(--accent); color:var(--bg); border-color:var(--accent); }
+  button.danger { color:var(--red); }
+  button:disabled { opacity:.5; cursor:default; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:10px; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .grow { flex:1; }
+  .muted { color:var(--muted); font-size:13px; }
+  .text { margin:8px 0; white-space:pre-wrap; word-break:break-word; }
+  .badge { font-size:12px; padding:2px 8px; border-radius:99px; border:1px solid var(--line); }
+  .s-high { color:var(--red); border-color:var(--red); } .s-mid { color:var(--amber); border-color:var(--amber); } .s-low { color:var(--green); border-color:var(--green); }
+  .notice { padding:10px 14px; border-radius:10px; margin-bottom:12px; background:var(--card); border:1px solid var(--amber); }
+  textarea, input[type=number] { font:inherit; width:100%; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:8px; }
+  label { display:block; margin:12px 0 4px; font-weight:600; }
+  a { color:inherit; }
+  .empty { text-align:center; padding:40px 0; color:var(--muted); }
+  #toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:var(--accent); color:var(--bg); padding:8px 16px; border-radius:99px; display:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🛡️ Threads Bot Blocker</h1>
+  <div class="row">
+    <span id="mode" class="badge"></span>
+    <button class="primary" id="scan">掃描回覆</button>
+  </div>
+</header>
+<main>
+  <div id="notice"></div>
+  <nav id="tabs"></nav>
+  <section id="view"></section>
+</main>
+<div id="toast"></div>
+<script>
+const $ = (s) => document.querySelector(s);
+const el = (tag, props = {}, ...kids) => {
+  const n = Object.assign(document.createElement(tag), props);
+  n.append(...kids);
+  return n;
+};
+const api = async (path, body) => {
+  const res = await fetch(path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {});
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+};
+const toast = (msg) => { const t = $('#toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => (t.style.display = 'none'), 3000); };
+
+let state, tab = 'todo', selected = new Set();
+const TABS = [['todo', '待處理'], ['hidden', '已隱藏'], ['blocklist', '封鎖清單'], ['settings', '設定'], ['log', '紀錄']];
+
+async function refresh() {
+  state = await api('/api/state');
+  render();
+}
+
+function render() {
+  const c = state.counts;
+  $('#mode').textContent = state.settings.autoHide ? '自動隱藏：開' : '試跑模式（只標記，不動作）';
+  $('#notice').replaceChildren(...(state.configured ? [] : [el('div', { className: 'notice' }, '尚未設定 THREADS_ACCESS_TOKEN：請複製 .env.example 為 .env，填入權杖後重新啟動。')]));
+  $('#tabs').replaceChildren(...TABS.map(([k, label]) => {
+    const n = k === 'todo' ? (c.flagged || 0) + (c.pending || 0) : k === 'hidden' ? c.hidden || 0 : '';
+    return el('button', { className: tab === k ? 'on' : '', onclick: () => { tab = k; selected.clear(); render(); } }, n !== '' ? `${label} (${n})` : label);
+  }));
+  ({ todo: () => renderReplies(['flagged', 'pending']), hidden: () => renderReplies(['hidden']), blocklist: renderBlocklist, settings: renderSettings, log: renderLog })[tab]();
+}
+
+async function act(ids, action, extra = {}) {
+  const r = await api('/api/action', { ids, action, ...extra });
+  selected.clear();
+  toast(`完成 ${r.ok} 筆${r.failed.length ? `，失敗 ${r.failed.length} 筆：${r.failed[0].error}` : ''}`);
+  await refresh();
+}
+
+async function renderReplies(statuses) {
+  const lists = await Promise.all(statuses.map((s) => api(`/api/replies?status=${s}`)));
+  const items = lists.flat().sort((a, b) => b.score - a.score);
+  const view = $('#view');
+  if (!items.length) return view.replaceChildren(el('div', { className: 'empty' }, tab === 'todo' ? '沒有待處理的回覆。按「掃描回覆」開始。' : '沒有資料'));
+
+  const isTodo = tab === 'todo';
+  const bar = el('div', { className: 'row card' },
+    el('label', { style: 'margin:0;font-weight:400' }, el('input', { type: 'checkbox', onchange: (e) => { items.forEach((i) => (e.target.checked ? selected.add(i.id) : selected.delete(i.id))); render(); } }), ' 全選'),
+    el('span', { className: 'muted grow' }, `已選 ${selected.size} / ${items.length}`),
+    ...(isTodo
+      ? [el('button', { className: 'primary', disabled: !selected.size, onclick: () => act([...selected], 'hide') }, '隱藏選取'),
+         el('button', { disabled: !selected.size, onclick: () => act([...selected], 'keep') }, '保留選取')]
+      : [el('button', { disabled: !selected.size, onclick: () => act([...selected], 'unhide') }, '取消隱藏')]));
+  view.replaceChildren(bar, ...items.map((r) => {
+    const cls = r.score >= state.settings.hideThreshold ? 's-high' : r.score >= state.settings.reviewThreshold ? 's-mid' : 's-low';
+    return el('div', { className: 'card' },
+      el('div', { className: 'row' },
+        el('input', { type: 'checkbox', checked: selected.has(r.id), onchange: (e) => { e.target.checked ? selected.add(r.id) : selected.delete(r.id); render(); } }),
+        el('strong', {}, '@' + r.username),
+        el('span', { className: `badge ${cls}` }, `機器人分數 ${r.score}`),
+        el('span', { className: 'muted grow' }, new Date(r.timestamp).toLocaleString()),
+        r.permalink ? el('a', { href: r.permalink, target: '_blank', rel: 'noopener noreferrer', className: 'muted' }, '原文') : ''),
+      el('div', { className: 'text' }, r.text || '(無文字)'),
+      el('div', { className: 'muted' }, '判斷依據：' + (r.reasons.join('；') || '無')),
+      el('div', { className: 'row', style: 'margin-top:8px' },
+        ...(isTodo
+          ? [el('button', { onclick: () => act([r.id], 'hide') }, '隱藏'),
+             el('button', { onclick: () => act([r.id], 'keep', { whitelist: true }) }, '保留並加入白名單'),
+             el('button', { className: 'danger', onclick: () => act([r.id], 'blacklist') }, '加入黑名單並隱藏其所有回覆')]
+          : [el('button', { onclick: () => act([r.id], 'unhide') }, '取消隱藏'),
+             el('button', { className: 'danger', onclick: () => act([r.id], 'blacklist') }, '加入黑名單')])));
+  }));
+}
+
+function renderBlocklist() {
+  const users = state.blacklist;
+  $('#view').replaceChildren(
+    el('div', { className: 'card muted' }, 'Threads 官方 API 不提供封鎖功能。請點「開啟個人頁」，在 Threads 內按右上角 ⋯ → 封鎖，回到這裡按「已封鎖」即可。'),
+    ...(users.length ? users.map((u) => el('div', { className: 'card row' },
+      el('strong', { className: 'grow' }, '@' + u),
+      el('a', { href: `https://www.threads.net/@${encodeURIComponent(u)}`, target: '_blank', rel: 'noopener noreferrer' }, el('button', {}, '開啟個人頁')),
+      el('button', { onclick: async () => {
+        const sample = Object.values(await api('/api/replies')).find((r) => r.username.toLowerCase() === u);
+        sample ? act([sample.id], 'blocked') : toast('此帳號目前沒有回覆紀錄，可在設定中直接從名單移除');
+      } }, '已封鎖'))) : [el('div', { className: 'empty' }, '黑名單是空的')]));
+}
+
+function renderSettings() {
+  const s = state.settings;
+  const kw = el('textarea', { rows: 4, value: s.keywords.join('\n') });
+  const bl = el('textarea', { rows: 3, value: state.blacklist.join('\n') });
+  const wl = el('textarea', { rows: 3, value: state.whitelist.join('\n') });
+  const hide = el('input', { type: 'number', min: 1, max: 100, value: s.hideThreshold });
+  const rev = el('input', { type: 'number', min: 1, max: 100, value: s.reviewThreshold });
+  const posts = el('input', { type: 'number', min: 1, max: 50, value: s.postsToScan });
+  const auto = el('input', { type: 'checkbox', checked: s.autoHide });
+  const lines = (t) => t.value.split('\n').map((x) => x.trim()).filter(Boolean);
+  $('#view').replaceChildren(el('div', { className: 'card' },
+    el('label', {}, auto, ' 自動隱藏高分回覆（建議先用試跑模式確認準確度）'),
+    el('label', {}, '自動隱藏門檻（分數 ≥ 此值）'), hide,
+    el('label', {}, '加入待審門檻（分數 ≥ 此值）'), rev,
+    el('label', {}, '每次掃描最近幾則貼文'), posts,
+    el('label', {}, '關鍵字（一行一個）'), kw,
+    el('label', {}, '黑名單帳號（一行一個）'), bl,
+    el('label', {}, '白名單帳號（一行一個）'), wl,
+    el('p', { className: 'muted' }, state.ai ? 'AI 判斷：已啟用' : 'AI 判斷：未啟用（在 .env 設定 ANTHROPIC_API_KEY 即可啟用）'),
+    el('button', { className: 'primary', onclick: async () => {
+      await api('/api/settings', { autoHide: auto.checked, hideThreshold: +hide.value, reviewThreshold: +rev.value, postsToScan: +posts.value, keywords: lines(kw), blacklist: lines(bl), whitelist: lines(wl) });
+      toast('已儲存'); await refresh();
+    } }, '儲存設定')));
+}
+
+function renderLog() {
+  $('#view').replaceChildren(...(state.log.length ? state.log.map((l) => el('div', { className: 'card muted' }, `${new Date(l.at).toLocaleString()}　${l.action}　${l.username ? '@' + l.username : ''}`)) : [el('div', { className: 'empty' }, '尚無紀錄')]));
+}
+
+$('#scan').onclick = async (e) => {
+  e.target.disabled = true; e.target.textContent = '掃描中…';
+  try {
+    const r = await api('/api/scan', {});
+    toast(`掃描 ${r.scanned} 則：高風險 ${r.flagged}、待審 ${r.pending}、已隱藏 ${r.hidden}${r.errors.length ? `，錯誤 ${r.errors.length}` : ''}`);
+    await refresh();
+  } catch (err) { toast(err.message); }
+  e.target.disabled = false; e.target.textContent = '掃描回覆';
+};
+
+refresh().catch((e) => toast(e.message));
+</script>
+</body>
+</html>
