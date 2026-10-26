@@ -6,6 +6,7 @@ export const DEFAULT_SETTINGS = {
   hideThreshold: 80,
   reviewThreshold: 40,
   postsToScan: 10,
+  disabledPacks: [],
   keywords: [
     '加賴', '加line', 'line id', '私訊我', '私我', '博弈', '娛樂城', '投資', '帶單', '賺錢',
     '兼職', '免費領', 'telegram', 'whatsapp', 'crypto', 'dm me', 'click here', '點擊連結',

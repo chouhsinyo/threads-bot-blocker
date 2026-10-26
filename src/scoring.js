@@ -1,8 +1,10 @@
-const norm = (s = '') => s.toLowerCase().replace(/\s+/g, ' ').trim();
+import { matchRules } from './rulepacks.js';
+
+const norm =(s = '') => s.toLowerCase().replace(/\s+/g, ' ').trim();
 
 // Rule-based bot score, 0-100, with human-readable reasons.
 // `all` is every reply seen in this scan, used for duplicate / burst detection.
-export function scoreReply(reply, { all, blacklist, whitelist, keywords }) {
+export function scoreReply(reply, { all, blacklist, whitelist, keywords, rules = [] }) {
   const user = (reply.username || '').toLowerCase();
   if (whitelist.includes(user)) return { score: 0, reasons: ['白名單'] };
   if (blacklist.includes(user)) return { score: 100, reasons: ['黑名單'] };
@@ -34,6 +36,8 @@ export function scoreReply(reply, { all, blacklist, whitelist, keywords }) {
 
   const emojis = (text.match(/\p{Extended_Pictographic}/gu) || []).length;
   if (emojis >= 5 && text.replace(/\p{Extended_Pictographic}|\s/gu, '').length < 5) add(10, '幾乎只有表情符號');
+
+  for (const hit of matchRules(reply, rules)) add(hit.weight, hit.reason);
 
   return { score: Math.min(100, score), reasons };
 }

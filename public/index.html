@@ -65,7 +65,7 @@ const api = async (path, body) => {
 const toast = (msg) => { const t = $('#toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => (t.style.display = 'none'), 3000); };
 
 let state, tab = 'todo', selected = new Set();
-const TABS = [['todo', '待處理'], ['hidden', '已隱藏'], ['blocklist', '封鎖清單'], ['settings', '設定'], ['log', '紀錄']];
+const TABS = [['todo', '待處理'], ['hidden', '已隱藏'], ['blocklist', '封鎖清單'], ['packs', '規則包'], ['settings', '設定'], ['log', '紀錄']];
 
 async function refresh() {
   state = await api('/api/state');
@@ -75,12 +75,47 @@ async function refresh() {
 function render() {
   const c = state.counts;
   $('#mode').textContent = state.settings.autoHide ? '自動隱藏：開' : '試跑模式（只標記，不動作）';
-  $('#notice').replaceChildren(...(state.configured ? [] : [el('div', { className: 'notice' }, '尚未設定 THREADS_ACCESS_TOKEN：請複製 .env.example 為 .env，填入權杖後重新啟動。')]));
   $('#tabs').replaceChildren(...TABS.map(([k, label]) => {
     const n = k === 'todo' ? (c.flagged || 0) + (c.pending || 0) : k === 'hidden' ? c.hidden || 0 : '';
     return el('button', { className: tab === k ? 'on' : '', onclick: () => { tab = k; selected.clear(); render(); } }, n !== '' ? `${label} (${n})` : label);
   }));
-  ({ todo: () => renderReplies(['flagged', 'pending']), hidden: () => renderReplies(['hidden']), blocklist: renderBlocklist, settings: renderSettings, log: renderLog })[tab]();
+  ({ todo: () => renderReplies(['flagged', 'pending']), hidden: () => renderReplies(['hidden']), blocklist: renderBlocklist, packs: renderPacks, settings: renderSettings, log: renderLog })[tab]();
+}
+
+async function renderPacks() {
+  const packs = await api('/api/packs');
+  const text = el('textarea', { rows: 6, placeholder: '貼上規則包 JSON' });
+  const url = el('input', { type: 'text', placeholder: 'https://raw.githubusercontent.com/…/pack.json', style: 'width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text)' });
+  const doImport = async (body) => {
+    try {
+      const r = await api('/api/packs/import', body);
+      toast(`已匯入「${r.name}」（${r.rules} 條規則）${r.replacedBundled ? '，已取代內建同名規則包' : ''}`);
+      renderPacks();
+    } catch (e) { toast(e.message); }
+  };
+  $('#view').replaceChildren(
+    el('div', { className: 'card muted' }, '規則包是純 JSON 資料，不含程式碼。匯入前請先看過內容與來源；規則只會提高「機器人分數」，是否隱藏仍由你的門檻與審核決定。'),
+    ...packs.map((p) => el('div', { className: 'card' },
+      el('div', { className: 'row' },
+        el('strong', { className: 'grow' }, `${p.name}　v${p.version}`),
+        el('span', { className: 'badge' }, `${p.rules} 條`),
+        el('span', { className: 'badge' }, p.origin === 'bundled' ? '內建' : '已匯入'),
+        el('label', { style: 'margin:0;font-weight:400' }, el('input', { type: 'checkbox', checked: p.enabled, onchange: async (e) => { await api('/api/packs/toggle', { id: p.id, enabled: e.target.checked }); toast(e.target.checked ? '已啟用' : '已停用'); } }), ' 啟用'),
+        ...(p.origin === 'user' ? [el('button', { className: 'danger', onclick: async () => { if (confirm(`移除「${p.name}」？`)) { await api('/api/packs/remove', { id: p.id }); renderPacks(); } } }, '移除')] : [])),
+      p.description ? el('div', { className: 'text muted' }, p.description) : '',
+      p.source ? el('div', { className: 'muted' }, el('a', { href: p.source, target: '_blank', rel: 'noopener noreferrer' }, '來源')) : '')),
+    el('div', { className: 'card' },
+      el('label', { style: 'margin-top:0' }, '從網址匯入（僅限 https）'), url,
+      el('div', { style: 'margin-top:8px' }, el('button', { className: 'primary', onclick: () => url.value.trim() && doImport({ url: url.value.trim() }) }, '下載並匯入')),
+      el('label', {}, '或貼上 JSON'), text,
+      el('div', { style: 'margin-top:8px' }, el('button', { className: 'primary', onclick: () => text.value.trim() && doImport({ text: text.value }) }, '匯入'))));
+}
+
+async function checkSetup() {
+  const r = await api('/api/check');
+  $('#notice').replaceChildren(...(r.ok ? [] : [el('div', { className: 'notice' },
+    el('strong', {}, '設定精靈：'), ` ${r.message}`,
+    el('div', { className: 'muted' }, '步驟：① 建立 Meta App → ② 授權 threads_basic / threads_read_replies / threads_manage_replies → ③ 把權杖貼到 .env 的 THREADS_ACCESS_TOKEN → ④ 重新啟動。詳見 README。'))]));
 }
 
 async function act(ids, action, extra = {}) {
@@ -178,6 +213,7 @@ $('#scan').onclick = async (e) => {
 };
 
 refresh().catch((e) => toast(e.message));
+checkSetup().catch(() => {});
 </script>
 </body>
 </html>

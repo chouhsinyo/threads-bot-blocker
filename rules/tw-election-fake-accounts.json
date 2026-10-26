@@ -1,0 +1,13 @@
+{
+  "id": "tw-election-fake-accounts",
+  "name": "台灣選舉假帳號特徵（範例）",
+  "version": "1",
+  "description": "依公開貼文整理的假帳號特徵：名稱幾乎一樣只差數字、簡體「台湾」加選舉標籤、導流色情內容。分數偏低，只用來提高待審排序，不會單獨造成自動隱藏。",
+  "source": "https://www.threads.com/@shinchan_5624/post/De4pohrmeN-",
+  "rules": [
+    { "type": "keyword", "value": "台湾", "weight": 10, "reason": "出現簡體「台湾」（該批假帳號常見標籤）", "source": "https://www.threads.com/@shinchan_5624/post/De4pohrmeN-" },
+    { "type": "keyword", "value": "选举", "weight": 15, "reason": "出現簡體「选举」", "source": "https://www.threads.com/@shinchan_5624/post/De4pohrmeN-" },
+    { "type": "username_contains", "value": "liancui", "weight": 15, "reason": "名稱拼音與名單中的「憐翠」相同，需人工確認", "source": "https://www.threads.com/@shinchan_5624/post/De4pohrmeN-" },
+    { "type": "username_digits", "value": 3, "weight": 10, "reason": "帳號名稱含 3 位以上連續數字" }
+  ]
+}

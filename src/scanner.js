@@ -1,9 +1,11 @@
 import { scoreReply, statusFor } from './scoring.js';
 import { aiJudge } from './ai.js';
+import { compileRules, loadPacks } from './rulepacks.js';
 
 // Fetch replies on recent posts, score them, and (optionally) auto-hide the clearly-bot ones.
 export async function scan({ client, store, anthropicKey }) {
   const { settings, blacklist, whitelist } = store.db;
+  const rules = compileRules(loadPacks(), settings.disabledPacks);
   const posts = await client.recentPosts(settings.postsToScan);
 
   const fetched = [];
@@ -21,7 +23,7 @@ export async function scan({ client, store, anthropicKey }) {
     // Respect decisions the user already made.
     if (known && ['kept', 'hidden', 'blocked'].includes(known.status)) continue;
 
-    let { score, reasons } = scoreReply(r, { all: fetched, blacklist, whitelist, keywords: settings.keywords });
+    let { score, reasons } = scoreReply(r, { all: fetched, blacklist, whitelist, keywords: settings.keywords, rules });
 
     if (score >= 20 && score < settings.hideThreshold) {
       const ai = await aiJudge(r, anthropicKey);

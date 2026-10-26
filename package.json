@@ -1,9 +1,12 @@
 {
   "name": "threads-bot-blocker",
-  "version": "0.1.0",
-  "description": "Detect and hide bot replies on your Threads posts, with a local review dashboard.",
+  "version": "0.2.0",
+  "description": "Detect and hide bot replies on your Threads posts, with a local review dashboard and shareable rule packs.",
   "type": "module",
+  "license": "MIT",
   "private": true,
+  "repository": { "type": "git", "url": "git+https://github.com/chouhsinyo/threads-bot-blocker.git" },
+  "bin": { "threads-bot-blocker": "src/server.js" },
   "engines": { "node": ">=18" },
   "scripts": {
     "start": "node src/server.js",

@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
@@ -6,6 +7,7 @@ import { loadEnv } from './env.js';
 import { Store } from './store.js';
 import { ThreadsClient } from './threads.js';
 import { scan } from './scanner.js';
+import { fetchPackText, loadPacks, parsePackText, removePack, savePack } from './rulepacks.js';
 
 loadEnv();
 const PORT = Number(process.env.PORT) || 3000;
@@ -116,6 +118,55 @@ const routes = {
     }
     store.save();
     return results;
+  },
+
+  // Setup wizard: verify the token actually works and has the permissions we need.
+  'GET /api/check': async () => {
+    if (!client) return { ok: false, step: 'token', message: '尚未設定 THREADS_ACCESS_TOKEN（請編輯 .env 後重新啟動）' };
+    let me;
+    try {
+      me = await client.me();
+    } catch (e) {
+      return { ok: false, step: 'token', message: `權杖無法使用：${e.message}` };
+    }
+    try {
+      const posts = await client.recentPosts(1);
+      if (posts[0]) await client.replies(posts[0].id, 1);
+    } catch (e) {
+      return { ok: false, step: 'permissions', username: me.username, message: `權杖有效，但讀取回覆失敗，請確認已授權 threads_read_replies：${e.message}` };
+    }
+    return { ok: true, username: me.username, message: `已連線：@${me.username}` };
+  },
+
+  'GET /api/packs': async () =>
+    loadPacks().map((p) => ({
+      id: p.id, name: p.name, version: p.version, description: p.description, source: p.source,
+      origin: p.origin, rules: p.rules.length, enabled: !store.db.settings.disabledPacks.includes(p.id),
+    })),
+
+  // body: { text } for pasted JSON, or { url } for an https link. Always saved as a user pack.
+  'POST /api/packs/import': async (_req, _url, body) => {
+    const text = body.url ? await fetchPackText(String(body.url)) : String(body.text || '');
+    const pack = parsePackText(text);
+    const bundled = loadPacks().find((p) => p.id === pack.id && p.origin === 'bundled');
+    savePack(pack);
+    store.log('import-pack', { id: pack.id, rules: pack.rules.length });
+    store.save();
+    return { id: pack.id, name: pack.name, rules: pack.rules.length, replacedBundled: Boolean(bundled) };
+  },
+
+  'POST /api/packs/toggle': async (_req, _url, body) => {
+    const d = store.db.settings.disabledPacks;
+    const id = String(body.id);
+    store.db.settings.disabledPacks = body.enabled ? d.filter((x) => x !== id) : [...new Set([...d, id])];
+    store.save();
+    return { ok: true };
+  },
+
+  'POST /api/packs/remove': async (_req, _url, body) => {
+    removePack(String(body.id));
+    store.save();
+    return { ok: true };
   },
 
   'POST /api/settings': async (_req, _url, body) => {
