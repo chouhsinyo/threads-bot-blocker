@@ -23,7 +23,7 @@ Threads 官方 API **沒有「封鎖」與「檢舉」功能**，只允許對**�
 1. 下載或 clone 這個專案
 2. 取得 Threads 權杖（見下方）
 3. 啟動
-   - **Windows**：雙擊 `start.bat`（第一次會幫你建立 `.env` 並用記事本打開）
+   - **Windows**：雙擊 [`start.bat`](start.bat)（第一次會幫你建立 `.env` 並用記事本打開）
    - **其他系統**：`cp .env.example .env`，填入權杖，然後 `npm start`
 4. 開啟 http://localhost:3000 ，上方的**設定精靈**會告訴你權杖是否有效、權限是否足夠
 
